@@ -352,7 +352,6 @@ int main(int argc, char* argv[]) {
     *out << str << endl;
 
 
-    // 关闭文件流（如果打开了）
     if (fin.is_open()) fin.close();
     return 0;
 }
