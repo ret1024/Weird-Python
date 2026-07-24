@@ -62,3 +62,44 @@
 
 ```bash
 g++ -o weird-python main.cpp -std=c++11
+```
+
+### 使用方法
+
+```bash
+# 将 input.c 风格代码转换到 output.py
+./weird-python input.c output.py
+
+# 读取标准输入并输出到标准输出
+cat input.c | ./weird-python -
+```
+
+### 示例
+
+假设 `exa.pyp` 包含：
+
+```c
+int main(){
+    dict map = {"a": 91};
+    print("hello");
+    for i in range(91){
+        print(i);
+    }
+}
+```
+
+运行后输出将类似：
+
+```python
+def main() -> None:
+	map: dict = {"a": 91};
+	print("hello");
+	for i in range(91):
+		print(i);
+```
+
+### 注意事项
+
+- 目前代码转换基于行级简单解析，适合基本的 C/类 C 伪代码。复杂 C++ 语法、指针、引用、宏、模板等尚未全面支持。
+- 字符串和字面量中的花括号会被保护，但更复杂的嵌套内容可能仍需手动检查。
+- `--run-from-main` 选项会在输出末尾自动补充 `if __name__ == '__main__':\n\tmain()`，便于直接运行生成代码。
