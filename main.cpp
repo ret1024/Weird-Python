@@ -205,7 +205,6 @@ vector<string> split(string& s,
 }
 
 string format(const string& data) {
-    bool isvar = false;
     bool isinstring = false;
     string buffer;
     string line;
@@ -227,7 +226,6 @@ string format(const string& data) {
                 ++depth;
                 break;
             case '}':
-                if (isvar) { isvar = false; break; }
                 --depth;
                 buffer.pop_back();
                 buffer.push_back('\n');
