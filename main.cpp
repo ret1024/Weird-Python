@@ -262,6 +262,10 @@ bool is_empty_line(const std::string& line) {
     return true;
 }
 bool check(string code) {
+    if (countChar(code ,'"') % 2 != 0) {
+        cout << "There is an unclosed string" << endl;
+        return false;
+    }
     if (countChar(code, '{') != countChar(code, '}')) {
         cout << "There is an unclosed structure" << endl;
         return false;
