@@ -207,10 +207,29 @@ vector<string> split(string& s,
 string format(const string& data) {
     bool isvar = false;
     string buffer;
-    string line;
     unsigned int depth = 1;
+    bool in_single = false, in_double = false;
+    char prev = '\0';
     for (char ch : data) {
-        if (ch == '\n') continue;  // 忽略原有换行
+        if (ch == '\n') { prev = ch; continue; }  // 忽略原有换行
+        // 处理字符串字面量，避免在字面量内修改花括号或分号
+        if (ch == '"' && !in_single && prev != '\\') {
+            in_double = !in_double;
+            buffer.push_back(ch);
+            prev = ch;
+            continue;
+        }
+        if (ch == '\'' && !in_double && prev != '\\') {
+            in_single = !in_single;
+            buffer.push_back(ch);
+            prev = ch;
+            continue;
+        }
+        if (in_single || in_double) {
+            buffer.push_back(ch);
+            prev = ch;
+            continue;
+        }
         buffer.push_back(ch);
         if (ch == '{') {
             buffer.pop_back();
@@ -219,15 +238,16 @@ string format(const string& data) {
             buffer.append(depth, '\t');
             ++depth;
         } else if (ch == '}') {
-            if (isvar) {isvar = false; continue;}
-            --depth;
+            if (isvar) {isvar = false; prev = ch; continue;}
+            if (depth > 0) --depth;
             buffer.pop_back();
-            buffer.push_back('\n');      
+            buffer.push_back('\n');
         } else if (ch == ';') {
             buffer.pop_back();
             buffer.push_back('\n');
-            buffer.append(depth-1, '\t');   // 添加缩进
+            if (depth > 0) buffer.append(depth-1, '\t');   // 添加缩进
         }
+        prev = ch;
     }
     // 还原字典/列表字面量的花括号
     string str = buffer;
@@ -337,7 +357,7 @@ int main(int argc, char* argv[]) {
     while ((pos = str.find("    ")) != std::string::npos) {
         str.replace(pos, 4, "\t");
     }
-    str.erase(remove(str.begin(), str.end(), '\t'), str.end());
+    // 保留制表符以便后续格式化使用（原来错误地删除了所有 \t）
     if (!check(str)) return 1;
     str = convertDeclarations(str);
     str.erase(remove(str.begin(), str.end(), '\n'), str.end());

@@ -2,3 +2,4 @@
 build/
 *.py
 *.pyp
+*.exe
