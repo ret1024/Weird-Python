@@ -206,48 +206,40 @@ vector<string> split(string& s,
 
 string format(const string& data) {
     bool isvar = false;
+    bool isinstring = false;
     string buffer;
+    string line;
     unsigned int depth = 1;
-    bool in_single = false, in_double = false;
-    char prev = '\0';
     for (char ch : data) {
-        if (ch == '\n') { prev = ch; continue; }  // 忽略原有换行
-        // 处理字符串字面量，避免在字面量内修改花括号或分号
-        if (ch == '"' && !in_single && prev != '\\') {
-            in_double = !in_double;
-            buffer.push_back(ch);
-            prev = ch;
-            continue;
-        }
-        if (ch == '\'' && !in_double && prev != '\\') {
-            in_single = !in_single;
-            buffer.push_back(ch);
-            prev = ch;
-            continue;
-        }
-        if (in_single || in_double) {
-            buffer.push_back(ch);
-            prev = ch;
-            continue;
-        }
+        if (ch == '\n') continue;  // 忽略原有换行
         buffer.push_back(ch);
-        if (ch == '{') {
-            buffer.pop_back();
-            buffer.push_back(':');
-            buffer.push_back('\n');
-            buffer.append(depth, '\t');
-            ++depth;
-        } else if (ch == '}') {
-            if (isvar) {isvar = false; prev = ch; continue;}
-            if (depth > 0) --depth;
-            buffer.pop_back();
-            buffer.push_back('\n');
-        } else if (ch == ';') {
-            buffer.pop_back();
-            buffer.push_back('\n');
-            if (depth > 0) buffer.append(depth-1, '\t');   // 添加缩进
+        if (ch == '"' || ch == '\'') {
+            isinstring = !isinstring;
+            continue;
         }
-        prev = ch;
+        if (isinstring) continue;  // 字符串内不处理
+        switch (ch) {
+            case '{':
+                buffer.pop_back();
+                buffer.push_back(':');
+                buffer.push_back('\n');
+                buffer.append(depth, '\t');
+                ++depth;
+                break;
+            case '}':
+                if (isvar) { isvar = false; break; }
+                --depth;
+                buffer.pop_back();
+                buffer.push_back('\n');
+                break;
+            case ';':
+                buffer.pop_back();
+                buffer.push_back('\n');
+                buffer.append(depth - 1, '\t');   // 添加缩进
+                break;
+            default:
+                break;
+        }
     }
     // 还原字典/列表字面量的花括号
     string str = buffer;
@@ -357,7 +349,7 @@ int main(int argc, char* argv[]) {
     while ((pos = str.find("    ")) != std::string::npos) {
         str.replace(pos, 4, "\t");
     }
-    // 保留制表符以便后续格式化使用（原来错误地删除了所有 \t）
+    str.erase(remove(str.begin(), str.end(), '\t'), str.end());
     if (!check(str)) return 1;
     str = convertDeclarations(str);
     str.erase(remove(str.begin(), str.end(), '\n'), str.end());
