@@ -36,6 +36,7 @@ string convertFunction(const string& line) {
     string trimmed = trim(line);
     if (trimmed.empty()) return line;
 
+    // 检查第一个单词是否为基本类型
     size_t firstSpace = trimmed.find_first_of(" \t");
     if (firstSpace == string::npos) return line;
     string typeWord = trimmed.substr(0, firstSpace);
@@ -53,27 +54,69 @@ string convertFunction(const string& line) {
 
     size_t parenClose = trimmed.find_last_of(')');
     if (parenClose == string::npos || parenClose < parenOpen) return line;
-    string params = trimmed.substr(parenOpen + 1, parenClose - parenOpen - 1);
-    // 如果参数是 "void"，（Python 中none）
-    if (trim(params) == "void") params = "None";
 
+    // 提取参数列表字符串（不含括号）
+    string paramsStr = trimmed.substr(parenOpen + 1, parenClose - parenOpen - 1);
+    paramsStr = trim(paramsStr);
+
+    // 解析参数列表，生成带注解的参数字符串
+    string annotatedParams;
+    if (paramsStr.empty() || paramsStr == "void") {
+        // 无参数或显式 void → 空括号
+        annotatedParams = "";
+    } else {
+        // 按逗号分割参数
+        string paramsCopy = paramsStr;
+        vector<string> paramItems = split(paramsCopy, ',', true); // 复用现有 split
+        for (size_t i = 0; i < paramItems.size(); ++i) {
+            string item = trim(paramItems[i]);
+            if (item.empty()) continue;
+
+            // 解析 "类型 名称" 或 "类型 名称 = 默认值"
+            size_t eqPos = item.find('=');
+            string typeAndName = (eqPos != string::npos) ? trim(item.substr(0, eqPos)) : item;
+            string defaultValue = (eqPos != string::npos) ? trim(item.substr(eqPos + 1)) : "";
+
+            // 分割 typeAndName，按空格或制表符
+            size_t spacePos = typeAndName.find_last_of(" \t");
+            if (spacePos == string::npos) continue; // 无法识别，跳过
+
+            string paramType = trim(typeAndName.substr(0, spacePos));
+            string paramName = trim(typeAndName.substr(spacePos + 1));
+            if (paramName.empty() || paramType.empty()) continue;
+
+            // 构建 "paramName: paramType"
+            string paramAnnot = paramName + ": " + paramType;
+            if (!defaultValue.empty()) {
+                // 保留默认值（如 = 5）
+                paramAnnot += " = " + defaultValue;
+            }
+
+            if (i > 0) annotatedParams += ", ";
+            annotatedParams += paramAnnot;
+        }
+    }
+
+    // 生成函数定义头部
+    string result = "def " + funcName + "(" + annotatedParams + ")";
+    if (returnType != "void") {
+        result += " -> " + returnType;
+    } else {
+        result += " -> None";  // 或直接省略，取决于偏好
+    }
+
+    // 处理后面的内容（{ 或 ;）
     string restAfterClose = trim(trimmed.substr(parenClose + 1));
     bool hasBrace = (restAfterClose.find('{') != string::npos);
     bool hasSemicolon = (restAfterClose.find(';') != string::npos);
 
-    string result = "def " + funcName + "(" + params + ")";
-    if (returnType != "void") {
-        result += " -> " + returnType;
-    } else {
-        result += " -> None";
-    }
     if (hasBrace) {
         result += " {";
     } else if (hasSemicolon) {
-        result += ";";   // 函数原型保留分号
+        result += ";";
     }
 
-    // 保留原行首缩进（如果有）
+    // 保留行首缩进
     size_t firstNonSpace = line.find_first_not_of(" \t");
     string prefix = (firstNonSpace == string::npos) ? "" : line.substr(0, firstNonSpace);
     return prefix + result;
