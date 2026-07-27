@@ -2,7 +2,7 @@
 
 > 将“类 C”的代码风格一键转换为 Python 风格 —— 包括变量类型注解、函数签名转换、花括号缩进、字典/列表字面量保留等。
 
-[![Language](https://img.shields.io/badge/language-C++98-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B)
+[![Language](https://img.shields.io/badge/language-C%2B%2B11-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B11)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 
 ---
@@ -15,6 +15,7 @@
 - `int b;` → `b: int = 0;`
 - `int c, d;` → `c: int = 0; d: int = 0;`
 - `void func(int x) { ... }` → `def func(x) -> None: ...`
+- `int add(int a, float b)` → `def add(a: int, b: float) -> int`
 - `dict d = {"key": "value"};` → `d: dict = {"key": "value"};`
 - 花括号 → 缩进 + 冒号
 
@@ -31,8 +32,8 @@
   `int a, b = 3;` → `a: int = 0; b: int = 3;`
 
 - ✅ **函数声明转换**  
-  `int foo(int x, float y)` → `def foo(x, y) -> int`  
-  `void bar()` → `def bar() -> None`（`void` 参数列表变为 `None`，但一般可省略）
+  `int foo(int x, float y)` → `def foo(x: int, y: float) -> int`  
+  `void bar()` → `def bar() -> None`（空参数或 `void` 参数列表直接转换为空括号）
 
 - ✅ **花括号 → 冒号 + 缩进**  
   `{` 变成 `:` + 换行 + 缩进，`}` 减少缩进并换行，保留代码块层级。
@@ -69,9 +70,6 @@ g++ -o weird-python main.cpp -std=c++11
 ```bash
 # 将 input.c 风格代码转换到 output.py
 ./weird-python input.c output.py
-
-# 读取标准输入并输出到标准输出
-cat input.c | ./weird-python -
 ```
 
 ### 示例

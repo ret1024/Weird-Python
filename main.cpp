@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <map>
 #include <cctype>
 #include <iomanip>
 #include <cstring>
@@ -25,103 +26,14 @@ string format(const string& data);
 bool check(string code);
 string convertDeclarations(const string& code);
 string convertLine(const string& line);
-string convertFunction(const string& line);
 string trim(const string& s);
-string convertFunction(const string& line);
 bool isBasicType(const string& word);
+string normalizeType(const string& type);
+string defaultValueForType(const string& type);
+string protectBraces(const string& value);
 
 bool addMain = false;
 //---------------------
-string convertFunction(const string& line) {
-    string trimmed = trim(line);
-    if (trimmed.empty()) return line;
-
-    // 检查第一个单词是否为基本类型
-    size_t firstSpace = trimmed.find_first_of(" \t");
-    if (firstSpace == string::npos) return line;
-    string typeWord = trimmed.substr(0, firstSpace);
-    if (!isBasicType(typeWord)) return line;
-
-    size_t parenOpen = trimmed.find('(');
-    if (parenOpen == string::npos) return line;
-
-    string beforeParen = trim(trimmed.substr(0, parenOpen));
-    size_t lastSpace = beforeParen.find_last_of(" \t");
-    if (lastSpace == string::npos) return line;
-    string returnType = trim(beforeParen.substr(0, lastSpace));
-    string funcName = trim(beforeParen.substr(lastSpace + 1));
-    if (funcName.empty() || returnType.empty()) return line;
-
-    size_t parenClose = trimmed.find_last_of(')');
-    if (parenClose == string::npos || parenClose < parenOpen) return line;
-
-    // 提取参数列表字符串（不含括号）
-    string paramsStr = trimmed.substr(parenOpen + 1, parenClose - parenOpen - 1);
-    paramsStr = trim(paramsStr);
-
-    // 解析参数列表，生成带注解的参数字符串
-    string annotatedParams;
-    if (paramsStr.empty() || paramsStr == "void") {
-        // 无参数或显式 void → 空括号
-        annotatedParams = "";
-    } else {
-        // 按逗号分割参数
-        string paramsCopy = paramsStr;
-        vector<string> paramItems = split(paramsCopy, ',', true); // 复用现有 split
-        for (size_t i = 0; i < paramItems.size(); ++i) {
-            string item = trim(paramItems[i]);
-            if (item.empty()) continue;
-
-            // 解析 "类型 名称" 或 "类型 名称 = 默认值"
-            size_t eqPos = item.find('=');
-            string typeAndName = (eqPos != string::npos) ? trim(item.substr(0, eqPos)) : item;
-            string defaultValue = (eqPos != string::npos) ? trim(item.substr(eqPos + 1)) : "";
-
-            // 分割 typeAndName，按空格或制表符
-            size_t spacePos = typeAndName.find_last_of(" \t");
-            if (spacePos == string::npos) continue; // 无法识别，跳过
-
-            string paramType = trim(typeAndName.substr(0, spacePos));
-            string paramName = trim(typeAndName.substr(spacePos + 1));
-            if (paramName.empty() || paramType.empty()) continue;
-
-            // 构建 "paramName: paramType"
-            string paramAnnot = paramName + ": " + paramType;
-            if (!defaultValue.empty()) {
-                // 保留默认值（如 = 5）
-                paramAnnot += " = " + defaultValue;
-            }
-
-            if (i > 0) annotatedParams += ", ";
-            annotatedParams += paramAnnot;
-        }
-    }
-
-    // 生成函数定义头部
-    string result = "def " + funcName + "(" + annotatedParams + ")";
-    if (returnType != "void") {
-        result += " -> " + returnType;
-    } else {
-        result += " -> None";  // 或直接省略，取决于偏好
-    }
-
-    // 处理后面的内容（{ 或 ;）
-    string restAfterClose = trim(trimmed.substr(parenClose + 1));
-    bool hasBrace = (restAfterClose.find('{') != string::npos);
-    bool hasSemicolon = (restAfterClose.find(';') != string::npos);
-
-    if (hasBrace) {
-        result += " {";
-    } else if (hasSemicolon) {
-        result += ";";
-    }
-
-    // 保留行首缩进
-    size_t firstNonSpace = line.find_first_not_of(" \t");
-    string prefix = (firstNonSpace == string::npos) ? "" : line.substr(0, firstNonSpace);
-    return prefix + result;
-}
-// 辅助：去除字符串首尾空格
 string trim(const string& s) {
     size_t start = s.find_first_not_of(" \t");
     if (start == string::npos) return "";
@@ -129,85 +41,218 @@ string trim(const string& s) {
     return s.substr(start, end - start + 1);
 }
 
-// 判断一个字符串是否为C基本类型（可扩展）
 bool isBasicType(const string& word) {
-    static const char* types[] = {"int", "float", "char", "bool", "void", "dict", "list", "str", "string", };
+    static const char* types[] = {"int", "float", "char", "bool", "void", "dict", "list", "str", "string"};
     for (size_t i = 0; i < sizeof(types)/sizeof(types[0]); ++i) {
         if (word == types[i]) return true;
     }
     return false;
 }
 
-string convertLine(const string& line) {
-    string trimmed = trim(line);
-    if (trimmed.empty()) return line;
+string normalizeType(const string& type) {
+    if (type == "char" || type == "string") {
+        return "str";
+    }
+    return type;
+}
 
-    size_t firstSpace = trimmed.find_first_of(" \t");
-    if (firstSpace == string::npos) return line;
-    string typeWord = trimmed.substr(0, firstSpace);
-    if (!isBasicType(typeWord)) return line;
+string defaultValueForType(const string& type) {
+    static const std::map<string, string> defaultValues = {
+        {"int", "0"},
+        {"float", "0"},
+        {"str", "''"},
+        {"bool", "false"},
+        {"dict", "__LB____RB__"},
+        {"list", "[]"}
+    };
 
-    string rest = trim(trimmed.substr(firstSpace + 1));
-    if (rest.empty()) return line;
+    auto it = defaultValues.find(type);
+    if (it != defaultValues.end()) {
+        return it->second;
+    }
+    return "0";
+}
 
-    size_t semicolonPos = rest.find(';');
-    if (semicolonPos == string::npos) return line;
-
-    string varList = rest.substr(0, semicolonPos);
-    string varListCopy = varList;
-    vector<string> items = split(varListCopy, ',', true);
-
-    if (items.empty()) return line;
-
-    string result;
-    for (size_t i = 0; i < items.size(); ++i) {
-        string item = trim(items[i]);
-        if (item.empty()) continue;
-
-        string varName, initValue;
-        size_t eqPos = item.find('=');
-        if (eqPos != string::npos) {
-            varName = trim(item.substr(0, eqPos));
-            initValue = trim(item.substr(eqPos + 1));
-        } else {
-            varName = trim(item);
-            // 根据类型设置默认值
-            if (typeWord == "int" || typeWord == "float" || typeWord == "double" ||
-                typeWord == "long" || typeWord == "short") {
-                initValue = "0";
-            } else if (typeWord == "char" || typeWord == "string") {
-                typeWord = "str";
-                initValue = "''";
-            } else if (typeWord == "bool") {
-                initValue = "false";
-            } else if (typeWord == "dict") {
-                initValue = "__LB____RB__";   // 空字典占位
-            } else if (typeWord == "list") {
-                initValue = "[]";   // 空列表占位（可改用 []，但需确保 [] 不被干扰）
-            } else {
-                initValue = "0";
-            }
-        }
-
-        // 如果变量是 dict 或 list，且初始化值中包含花括号，进行替换
-        if (typeWord == "dict" || typeWord == "list") {
-            // 替换 { 和 } 为占位符
-            size_t pos = 0;
-            while ((pos = initValue.find('{', pos)) != string::npos) {
-                initValue.replace(pos, 1, "__LB__");
-                pos += 6; // 跳过占位符长度
-            }
-            pos = 0;
-            while ((pos = initValue.find('}', pos)) != string::npos) {
-                initValue.replace(pos, 1, "__RB__");
-                pos += 6;
-            }
-        }
-
-        varName = trim(varName);
-        result += varName + ": " + typeWord + " = " + initValue + ";";
+string protectBraces(const string& value) {
+    string result = value;
+    size_t pos = 0;
+    while ((pos = result.find('{', pos)) != string::npos) {
+        result.replace(pos, 1, "__LB__");
+        pos += 6;
+    }
+    pos = 0;
+    while ((pos = result.find('}', pos)) != string::npos) {
+        result.replace(pos, 1, "__RB__");
+        pos += 6;
     }
     return result;
+}
+
+struct LineProcessor {
+    string original;
+    string trimmed;
+    string indent;
+    string typeName;
+    bool isFunction = false;
+    bool isVariable = false;
+
+    explicit LineProcessor(const string& line) : original(line) {
+        parse();
+    }
+
+    void parse() {
+        size_t firstNonSpace = original.find_first_not_of(" \t");
+        indent = (firstNonSpace == string::npos) ? string() : original.substr(0, firstNonSpace);
+        trimmed = trim(original);
+        if (trimmed.empty()) return;
+
+        istringstream stream(trimmed);
+        vector<string> tokens;
+        string token;
+        while (stream >> token) {
+            tokens.push_back(token);
+        }
+        if (tokens.empty()) return;
+
+        typeName = tokens[0];
+        if (!isBasicType(typeName)) return;
+
+        if (trimmed.find('(') != string::npos && trimmed.find(')') != string::npos) {
+            isFunction = true;
+        } else if (trimmed.find(';') != string::npos) {
+            isVariable = true;
+        }
+    }
+
+    string convert() const {
+        if (isFunction) {
+            return convertFunction();
+        }
+        if (isVariable) {
+            return convertVariable();
+        }
+        return original;
+    }
+
+private:
+    string convertFunction() const {
+        size_t openPos = trimmed.find('(');
+        size_t closePos = trimmed.rfind(')');
+        if (openPos == string::npos || closePos == string::npos || closePos < openPos) {
+            return original;
+        }
+
+        string signature = trim(trimmed.substr(0, openPos));
+        size_t lastSpace = signature.find_last_of(" \t");
+        if (lastSpace == string::npos) {
+            return original;
+        }
+
+        string returnType = normalizeType(trim(signature.substr(0, lastSpace)));
+        string funcName = trim(signature.substr(lastSpace + 1));
+        if (returnType.empty() || funcName.empty()) {
+            return original;
+        }
+
+        string paramsStr = trim(trimmed.substr(openPos + 1, closePos - openPos - 1));
+        string annotatedParams;
+        if (!paramsStr.empty() && paramsStr != "void") {
+            string paramsCopy = paramsStr;
+            vector<string> paramItems = split(paramsCopy, ',', true);
+            for (size_t i = 0; i < paramItems.size(); ++i) {
+                string item = trim(paramItems[i]);
+                if (item.empty()) continue;
+
+                size_t eqPos = item.find('=');
+                string typeAndName = (eqPos != string::npos) ? trim(item.substr(0, eqPos)) : item;
+                string defaultValue = (eqPos != string::npos) ? trim(item.substr(eqPos + 1)) : string();
+
+                size_t spacePos = typeAndName.find_last_of(" \t");
+                if (spacePos == string::npos) continue;
+
+                string paramType = normalizeType(trim(typeAndName.substr(0, spacePos)));
+                string paramName = trim(typeAndName.substr(spacePos + 1));
+                if (paramType.empty() || paramName.empty()) continue;
+
+                if (!annotatedParams.empty()) {
+                    annotatedParams += ", ";
+                }
+                annotatedParams += paramName + ": " + paramType;
+                if (!defaultValue.empty()) {
+                    annotatedParams += " = " + defaultValue;
+                }
+            }
+        }
+
+        string result = "def " + funcName + "(" + annotatedParams + ")";
+        if (returnType != "void") {
+            result += " -> " + returnType;
+        } else {
+            result += " -> None";
+        }
+
+        string suffix = trim(trimmed.substr(closePos + 1));
+        if (suffix.find('{') != string::npos) {
+            result += " {";
+        } else if (suffix.find(';') != string::npos) {
+            result += ";";
+        }
+
+        return indent + result;
+    }
+
+    string convertVariable() const {
+        string normalizedType = normalizeType(typeName);
+        size_t typeEnd = trimmed.find_first_not_of(" \t", typeName.size());
+        if (typeEnd == string::npos) {
+            return original;
+        }
+
+        string remainder = trim(trimmed.substr(typeEnd));
+        size_t semicolonPos = remainder.rfind(';');
+        if (semicolonPos == string::npos) {
+            return original;
+        }
+
+        string varList = trim(remainder.substr(0, semicolonPos));
+        vector<string> items = split(varList, ',', true);
+        if (items.empty()) {
+            return original;
+        }
+
+        string result;
+        for (size_t i = 0; i < items.size(); ++i) {
+            string item = trim(items[i]);
+            if (item.empty()) continue;
+
+            string varName;
+            string initValue;
+            size_t eqPos = item.find('=');
+            if (eqPos != string::npos) {
+                varName = trim(item.substr(0, eqPos));
+                initValue = trim(item.substr(eqPos + 1));
+            } else {
+                varName = trim(item);
+                initValue = defaultValueForType(normalizedType);
+            }
+
+            if (normalizedType == "dict" || normalizedType == "list") {
+                initValue = protectBraces(initValue);
+            }
+
+            if (!result.empty()) {
+                result += " ";
+            }
+            result += varName + ": " + normalizedType + " = " + initValue + ";";
+        }
+
+        return trim(indent + result);
+    }
+};
+
+string convertLine(const string& line) {
+    LineProcessor processor(line);
+    return processor.convert();
 }
 
 // 对整个代码进行声明转换（保留换行）
@@ -215,15 +260,12 @@ string convertDeclarations(const string& code) {
     istringstream stream(code);
     string line, result;
     while (getline(stream, line)) {
-        string newLine = convertFunction(line);
-        if (newLine == line) {   // 未被函数转换
-            newLine = convertLine(line);
-        }
-        result += newLine;
+        result += convertLine(line);
         result.push_back('\n');
     }
     return result;
 }
+
 //----------------------
 size_t countChar(const std::string& str, char ch) {
     size_t count = 0;
@@ -237,23 +279,55 @@ vector<string> split(string& s,
                                char delimiter,
                                bool skipEmpty = true) {
     vector<std::string> tokens;
-    istringstream stream(s);
     string token;
-    while (getline(stream, token, delimiter)) {
-        if (!skipEmpty || !token.empty()) {
-            tokens.push_back(token);
+    bool inDoubleQuotes = false;
+    bool inSingleQuotes = false;
+    int braceDepth = 0;
+    for (size_t i = 0; i < s.size(); ++i) {
+        char ch = s[i];
+        if (ch == '"' && !inSingleQuotes) {
+            inDoubleQuotes = !inDoubleQuotes;
+            token.push_back(ch);
+            continue;
         }
+        if (ch == '\'' && !inDoubleQuotes) {
+            inSingleQuotes = !inSingleQuotes;
+            token.push_back(ch);
+            continue;
+        }
+
+        if (!inDoubleQuotes && !inSingleQuotes) {
+            if (ch == '{' || ch == '[' || ch == '(') {
+                ++braceDepth;
+            } else if (ch == '}' || ch == ']' || ch == ')') {
+                if (braceDepth > 0) {
+                    --braceDepth;
+                }
+            }
+        }
+
+        if (ch == delimiter && !inDoubleQuotes && !inSingleQuotes && braceDepth == 0) {
+            if (!skipEmpty || !token.empty()) {
+                tokens.push_back(token);
+            }
+            token.clear();
+        } else {
+            token.push_back(ch);
+        }
+    }
+    if (!skipEmpty || !token.empty()) {
+        tokens.push_back(token);
     }
     return tokens;
 }
 
 string format(const string& data) {
     bool isinstring = false;
+    bool afternext = false;
     string buffer;
     string line;
-    unsigned int depth = 1;
+    unsigned int depth = 0;
     for (char ch : data) {
-        if (ch == '\n') continue;  // 忽略原有换行
         buffer.push_back(ch);
         if (ch == '"' || ch == '\'') {
             isinstring = !isinstring;
@@ -262,11 +336,11 @@ string format(const string& data) {
         if (isinstring) continue;  // 字符串内不处理
         switch (ch) {
             case '{':
+                ++depth;
                 buffer.pop_back();
                 buffer.push_back(':');
                 buffer.push_back('\n');
                 buffer.append(depth, '\t');
-                ++depth;
                 break;
             case '}':
                 --depth;
@@ -274,12 +348,16 @@ string format(const string& data) {
                 buffer.push_back('\n');
                 break;
             case ';':
+                afternext = true;
                 buffer.pop_back();
                 buffer.push_back('\n');
-                buffer.append(depth - 1, '\t');   // 添加缩进
+                buffer.append(depth, '\t');   // 添加缩进
+                break;
+            case ' ':
+                if (afternext) buffer.pop_back();
                 break;
             default:
-                break;
+                afternext = false;
         }
     }
     // 还原字典/列表字面量的花括号
@@ -318,8 +396,7 @@ bool check(string code) {
         // 如果一行都是空格或制表符，则跳过检查
         if (is_empty_line(result[i])) continue;
         char c = result[i][result[i].size() - 1];
-        if (c != ';' && c != '}') {
-            if(c == '{') continue;
+        if (c != ';' && c != '}' && c != '{') {
             cout << "Conversion failed at line " << i << ": Missing ';'" << endl;
             return false;
         }
@@ -384,17 +461,13 @@ int main(int argc, char* argv[]) {
     // 读取所有输入
     string str, line;
     while (getline(*in, line)) {
-        str += line;
+        str += trim(line);
         str.push_back('\n');
     }
 
     // 处理流程（原有逻辑不变）
     //将四个空格替换为一个制表符
     size_t pos = 0;
-    while ((pos = str.find("    ")) != std::string::npos) {
-        str.replace(pos, 4, "\t");
-    }
-    str.erase(remove(str.begin(), str.end(), '\t'), str.end());
     if (!check(str)) return 1;
     str = convertDeclarations(str);
     str.erase(remove(str.begin(), str.end(), '\n'), str.end());
