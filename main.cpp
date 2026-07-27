@@ -345,6 +345,7 @@ string format(const string& data) {
             case '}':
                 --depth;
                 buffer.pop_back();
+                buffer.append(depth, '\t');
                 buffer.push_back('\n');
                 break;
             case ';':
